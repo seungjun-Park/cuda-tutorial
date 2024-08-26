@@ -18,6 +18,17 @@ __global__ void MatMulGPUKernel(
     int widthC
 );
 
+__global__ void MatMulGPUKernelWithSharedMemory(
+    float* elementsA,
+    float* elementsB,
+    float* elementsC,
+    int widthA,
+    int heightA,
+    int widthB,
+    int heightB,
+    int widthC
+);
+
 void MatMulCPU(const Matrix& A, const Matrix& B, Matrix& C)
 {
     assert(A.GetWidth() == B.GetHeight(), "A.width should be equal to B.height!");
@@ -70,6 +81,36 @@ void MatMulGPU(Matrix& A, Matrix& B, Matrix& C)
     C.ConvertDevice();
 }
 
+void MatMulGPUWithSharedMemory(Matrix& A, Matrix& B, Matrix& C)
+{
+    // CPU -> GPU Memory allocate
+    A.ConvertDevice();
+    B.ConvertDevice();
+    C.ConvertDevice();
+
+    // Invoke kernel
+    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 dimGrid(B.GetWidth() / dimBlock.x + 1, A.GetHeight() / dimBlock.y + 1);
+
+    auto startTime = std::chrono::system_clock::now();
+    MatMulGPUKernelWithSharedMemory<<<dimGrid, dimBlock>>>(
+        A.GetElements(),
+        B.GetElements(),
+        C.GetElements(),
+        A.GetWidth(),
+        A.GetHeight(),
+        B.GetWidth(),
+        B.GetHeight(),
+        C.GetWidth());
+
+    cudaDeviceSynchronize();
+    auto endTime = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    std::cout << duration.count() << "ms" << std::endl;
+
+    // GPU -> CPU Memory allocate
+    C.ConvertDevice();
+}
 
 __global__ void MatMulGPUKernel(
 	float* elementsA,
@@ -96,4 +137,31 @@ __global__ void MatMulGPUKernel(
 		CValue += elementsA[row * widthA + e] * elementsB[e * widthB + col];
 	}
 	elementsC[row * widthC + col] = CValue;
+}
+
+__global__ void MatMulGPUKernelWithSharedMemory(
+    float* elementsA,
+    float* elementsB,
+    float* elementsC,
+    int widthA,
+    int heightA,
+    int widthB,
+    int heightB,
+    int widthC
+)
+{
+    float CValue = 0;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row >= heightA || col >= widthB)
+    {
+        return;
+    }
+
+    for (int e = 0; e < widthA; ++e)
+    {
+        CValue += elementsA[row * widthA + e] * elementsB[e * widthB + col];
+    }
+    elementsC[row * widthC + col] = CValue;
 }
