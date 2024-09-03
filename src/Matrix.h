@@ -1,29 +1,29 @@
 #pragma once
 #include <iostream>
+#include <cuda_runtime.h>
 
-class Matrix
+class Matrix final
 {
 public:
-	// Host methods
-	Matrix(int height, int width, int stride, bool useCPU=true);
+	Matrix(int height, int width, bool useCPU = true);
 	Matrix(const Matrix& other);
 	Matrix(Matrix&& other) noexcept;
 
-	virtual ~Matrix();
+	~Matrix();
 
 	Matrix& operator=(const Matrix& other);
 	Matrix& operator=(Matrix&& other) noexcept;
 	float& operator[](int index);
 	float operator[](int index) const;
 
+	friend bool operator==(const Matrix& left, const Matrix& right);
+
 	int GetWidth() const;
 	int GetHeight() const;
-	int GetStride() const;
-	bool IsCPU() const;
-
 	float* GetElements();
-	void ConvertDevice();
-
+	bool IsCPU() const;
+	void ToDevice();
+	void ToHost();
 
 private:
 	Matrix();
@@ -31,7 +31,6 @@ private:
 private:
 	int width;
 	int height;
-	int stride;
 	bool useCPU;
 	float* elements = nullptr;
 };
