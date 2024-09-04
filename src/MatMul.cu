@@ -11,23 +11,6 @@
 #include "MatMul.h"
 #include "GPUInfo.h"
 
-typedef struct MatrixD {
-    int width;
-    int height;
-    float* elements;
-
-public:
-    __host__ __device__ float& operator[](int index)
-    {
-        return elements[index];
-    }
-
-    __host__ __device__ float operator[](int index) const
-    {
-        return elements[index];
-    }
-};
-
 __global__ void MatMulGPUKernel(
     const MatrixD A,
     const MatrixD B,

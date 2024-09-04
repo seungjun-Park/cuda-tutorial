@@ -12,14 +12,21 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="main.cu" />
+    <CudaCompile Include="src\Conv.cu" />
     <CudaCompile Include="src\GPUInfo.cu" />
     <CudaCompile Include="src\MatMul.cu" />
     <CudaCompile Include="src\Matrix.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Conv.h" />
     <ClInclude Include="src\GPUInfo.h" />
     <ClInclude Include="src\MatMul.h" />
     <ClInclude Include="src\Matrix.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+    <None Include="LICENSE" />
+    <None Include="README.md" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{E1F09F52-D0D7-4952-A01A-FD40F7C5EABD}</ProjectGuid>

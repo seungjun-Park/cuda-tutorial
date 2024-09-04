@@ -35,6 +35,24 @@ private:
 	float* elements = nullptr;
 };
 
+
+typedef struct MatrixD {
+	int width;
+	int height;
+	float* elements;
+
+public:
+	__host__ __device__ float& operator[](int index)
+	{
+		return elements[index];
+	}
+
+	__host__ __device__ float operator[](int index) const
+	{
+		return elements[index];
+	}
+};
+
 std::ostream& operator<<(std::ostream&, const Matrix&);
 
 void FillZeros(Matrix&);
