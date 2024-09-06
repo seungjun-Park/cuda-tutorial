@@ -5,18 +5,21 @@
 #include <random>
 #include "Matrix.h"
 #include "GPUInfo.h"
+#include "Common.h"
 
-Matrix::Matrix(int height, int width, bool useCPU) :
+Matrix::Matrix(int batch, int channels, int height, int width, bool useCPU) :
+	batch(batch),
+	channels(channels),
 	width(width),
 	height(height),
 	useCPU(useCPU)
 {
 	assert(elements == nullptr);
-	size_t size = width * height;
+	size_t size = batch * channels * width * height;
 	float* tmp = new float[size];
 	for (size_t i = 0; i < size; i++)
 	{
-		tmp[i] = i;
+		tmp[i] = 0.f;
 	}
 	if (useCPU)
 	{
@@ -34,12 +37,14 @@ Matrix::Matrix(int height, int width, bool useCPU) :
 }
 
 Matrix::Matrix(const Matrix& other) :
+	batch(other.batch),
+	channels(other.channels),
 	width(other.width),
 	height(other.height),
 	useCPU(other.useCPU)
 {
 	assert(elements == nullptr);
-	size_t size = width * height;
+	size_t size = width * height * channels * batch;
 	if (useCPU)
 	{
 		elements = new float[size];
@@ -59,6 +64,8 @@ Matrix::Matrix(const Matrix& other) :
 }
 
 Matrix::Matrix(Matrix&& other) noexcept:
+	batch(other.batch),
+	channels(other.channels),
 	width(other.width),
 	height(other.height),
 	useCPU(other.useCPU)
@@ -95,7 +102,7 @@ Matrix& Matrix::operator=(const Matrix& other)
 	}
 	else
 	{
-		cudaError_t cudaStatus = cudaMemcpy(elements, other.elements, sizeof(float) * width * height, cudaMemcpyDeviceToDevice);
+		cudaError_t cudaStatus = cudaMemcpy(elements, other.elements, sizeof(float) * width * height * batch * channels, cudaMemcpyDeviceToDevice);
 		assert(cudaStatus == cudaError_t::cudaSuccess);
 	}
 
@@ -132,6 +139,16 @@ int Matrix::GetHeight() const
 	return height;
 }
 
+int Matrix::GetChannels() const
+{
+	return channels;
+}
+
+int Matrix::GetBatch() const
+{
+	return batch;
+}
+
 bool Matrix::IsCPU() const
 {
 	return useCPU;
@@ -151,12 +168,12 @@ void Matrix::ToDevice()
 
 	float* tmp = elements;
 	elements = nullptr;
-	size_t size = width * height * sizeof(float);
-	cudaError cudaStatus = cudaMalloc((void**)&elements, size);
+	size_t size = width * height * batch * channels;
+	cudaError cudaStatus = cudaMalloc((void**)&elements, size * sizeof(float));
 	assert(cudaStatus == cudaError::cudaSuccess);
-	cudaStatus = cudaMemcpy(elements, tmp, size, cudaMemcpyHostToDevice);
-	assert(cudaStatus == cudaError::cudaSuccess);
+	checkCudaErrors(cudaMemcpy(elements, tmp, size * sizeof(float), cudaMemcpyHostToDevice));
 	useCPU = false;
+	delete[] tmp;
 }
 
 void Matrix::ToHost()
@@ -167,22 +184,34 @@ void Matrix::ToHost()
 	}
 	float* tmp = elements;
 	elements = nullptr;
-	elements = new float[width * height];
-	size_t size = width * height * sizeof(float);
-	cudaError_t cudaStatus = cudaMemcpy(elements, tmp, size, cudaMemcpyDeviceToHost);
-	assert(cudaStatus == cudaError::cudaSuccess);
+	size_t size = width * height * batch * channels;
+	elements = new float[size];
+	checkCudaErrors(cudaMemcpy(elements, tmp, size * sizeof(float), cudaMemcpyDeviceToHost));
+	cudaFree(tmp);
 	useCPU = true;
 }
 
 std::ostream& operator<<(std::ostream& os, const Matrix& matrix)
 {
+	int batch = matrix.GetBatch();
+	int channels = matrix.GetChannels();
+	int height = matrix.GetHeight();
 	int width = matrix.GetWidth();
-	for (size_t row = 0; row < matrix.GetHeight(); row++)
+
+	for (size_t b = 0; b < batch; b++)
 	{
-		for (size_t col = 0; col < matrix.GetWidth(); col++)
+		for (size_t ch = 0; ch < channels; ch++)
 		{
-			size_t index = row * width + col;
-			os << matrix[index] << ", ";
+			for (size_t row = 0; row < height; row++)
+			{
+				for (size_t col = 0; col < width; col++)
+				{
+					int idx = b * channels * width * height + ch * width * height + row * width + col;
+					os << matrix[idx] << ", ";
+				}
+				os << "\n";
+			}
+			os << "\n";
 		}
 		os << "\n";
 	}
@@ -192,65 +221,79 @@ std::ostream& operator<<(std::ostream& os, const Matrix& matrix)
 
 void FillZeros(Matrix& matrix)
 {
-	if (matrix.IsCPU())
+	int batch = matrix.GetBatch();
+	int channels = matrix.GetChannels();
+	int height = matrix.GetHeight();
+	int width = matrix.GetWidth();
+
+	for (size_t b = 0; b < batch; b++)
 	{
-		int width = matrix.GetWidth();
-		for (size_t row = 0; row < matrix.GetHeight(); row++)
+		for (size_t ch = 0; ch < channels; ch++)
 		{
-			for (size_t col = 0; col < matrix.GetWidth(); col++)
+			for (size_t row = 0; row < height; row++)
 			{
-				matrix[row * width + col] = 0.f;
+				for (size_t col = 0; col < width; col++)
+				{
+					int idx = b * channels * width * height + ch * width * height + row * width + col;
+					matrix[idx] = 0.f;
+				}
 			}
 		}
-	}
-	else
-	{
-		GPUInfo info = GPUInfo(false);
-		const int deviceCount = info.GetDeviceCount();
-		const cudaDeviceProp* deviceProps = info.GetDeviceProps();
-
-		// Invoke kernel
-		int outputSize = matrix.GetWidth() * matrix.GetHeight();
-		size_t blockSize = std::min((int)outputSize, deviceProps[0].maxThreadsPerBlock);
-		dim3 dimBlock(blockSize);
-		size_t gridSize = (outputSize / blockSize) + ((outputSize % blockSize > 0) ? 1 : 0);
-		gridSize = std::min((int)gridSize, deviceProps[0].maxGridSize[0]);
-		dim3 dimGrid(gridSize);
-		
-		// FillZerosKernel<<<dimGrid, dimBlock>>>(matrix.GetElements(), matrix.GetWidth(), outputSize);
-
-		cudaDeviceSynchronize();
 	}
 }
 
 void FillRandn(Matrix& matrix)
 {
-	int width = matrix.GetWidth();
 	std::random_device rd;
 	std::mt19937_64 gen(rd());
 	std::normal_distribution<float> nd(0, 1);
-	for (size_t row = 0; row < matrix.GetHeight(); row++)
+
+	int batch = matrix.GetBatch();
+	int channels = matrix.GetChannels();
+	int height = matrix.GetHeight();
+	int width = matrix.GetWidth();
+
+	for (size_t b = 0; b < batch; b++)
 	{
-		for (size_t col = 0; col < matrix.GetWidth(); col++)
+		for (size_t ch = 0; ch < channels; ch++)
 		{
-			matrix[row * width + col] = nd(gen);
+			for (size_t row = 0; row < height; row++)
+			{
+				for (size_t col = 0; col < width; col++)
+				{
+					int idx = b * channels * width * height + ch * width * height + row * width + col;
+					matrix[idx] = nd(gen);
+				}
+			}
 		}
 	}
 }
 
 bool operator==(const Matrix& left, const Matrix& right)
 {
-	assert(left.width == right.width && left.height == right.height);
+	assert(left.width == right.width && left.height == right.height && left.batch == right.batch && left.channels == right.channels);
 
-	for (size_t row = 0; row < left.height; row++)
+	int width = left.width;
+	int height = left.height;
+	int channels = left.channels;
+	int batch = left.batch;
+
+	for (size_t b = 0; b < batch; b++)
 	{
-		for (size_t col = 0; col < left.width; col++)
+		for (size_t ch = 0; ch < channels; ch++)
 		{
-			if (std::abs(left.elements[row * left.width + col] - right.elements[row * right.width + col]) > 1e-4)
+			for (size_t row = 0; row < height; row++)
 			{
-				std::cout << "row: " << row << ", col: " << col << std::endl;
-				std::cout << "left: " << left.elements[row * left.width + col] << ", right: " << right.elements[row * right.width + col] << std::endl;
-				return false;
+				for (size_t col = 0; col < width; col++)
+				{
+					int idx = b * channels * width * height + ch * width * height + row * width + col;
+					if (std::abs(left[idx] - right[idx]) > 1e-4)
+					{
+						std::cout << "row: " << row << ", col: " << col << std::endl;
+						std::cout << "left: " << left[idx] << ", right: " << right[idx] << std::endl;
+						return false;
+					}
+				}
 			}
 		}
 	}

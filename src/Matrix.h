@@ -5,7 +5,7 @@
 class Matrix final
 {
 public:
-	Matrix(int height, int width, bool useCPU = true);
+	Matrix(int batch, int channels, int height, int width, bool useCPU = true);
 	Matrix(const Matrix& other);
 	Matrix(Matrix&& other) noexcept;
 
@@ -20,6 +20,9 @@ public:
 
 	int GetWidth() const;
 	int GetHeight() const;
+	int GetChannels() const;
+	int GetBatch() const;
+
 	float* GetElements();
 	bool IsCPU() const;
 	void ToDevice();
@@ -31,7 +34,11 @@ private:
 private:
 	int width;
 	int height;
+	int channels;
+	int batch;
+
 	bool useCPU;
+
 	float* elements = nullptr;
 };
 
@@ -39,6 +46,8 @@ private:
 typedef struct MatrixD {
 	int width;
 	int height;
+	int channels;
+	int batch;
 	float* elements;
 
 public:

@@ -83,7 +83,7 @@ void Conv2dGPU(Matrix& m, Matrix& k, Matrix& out)
     Conv2dGPUKernel<<<dimGrid, dimBlock>>>(
         d_m,
         d_k,
-        d_out,
+        d_out
         );
 
     cudaDeviceSynchronize();
@@ -138,7 +138,7 @@ void Conv2dGPUWithSharedMemory(Matrix& m, Matrix& k, Matrix& out)
     Conv2dGPUKernel << <dimGrid, dimBlock >> > (
         d_m,
         d_k,
-        d_out,
+        d_out
         );
 
     cudaDeviceSynchronize();
@@ -192,42 +192,38 @@ __global__ void Conv2dGPUKernelWithSharedMemory(
     
     float outValue = 0.f;
     // Shared memory used to store Asub and Bsub respectively
-    float* ms = (float*)subsetMatrix;
-    float* ks = (float*)(subsetMatrix + blockSize * blockSize);
+    float* ms = (float*)sharedMemory;
+    float* ks = (float*)(sharedMemory + blockSize * blockSize);
+    
     int blockRow = blockIdx.x / blockWidth;
     int blockCol = blockIdx.x % blockWidth;
     int row = threadIdx.x / blockSize;
     int col = threadIdx.x % blockSize;
 
-    int CSubIdx = (blockRow * C.width + blockCol) * blockSize;
-    int curAWidth = A.width;
+    int outSubIdx = (blockRow * out.width + blockCol) * blockSize;
     int i = 0;
-    while (curAWidth > 0)
-    {
-        blockSize = (curAWidth > blockSize) ? blockSize : curAWidth;
+    //while (curAWidth > 0)
+    //{
+    //    blockSize = (curAWidth > blockSize) ? blockSize : curAWidth;
 
-        int ASubIdx = (blockRow * A.width + m) * blockSize;
-        int BSubIdx = (m * B.width + blockCol) * blockSize;
+    //    int mSubIdx;
+    //    int kSubIdx;
 
-        // Load Asub and Bsub from device memory to shared memory
-        // Each thread loads one element of each sub-matrix
-        As[row * blockSize + col] = A[ASubIdx + row * A.width + col];
-        Bs[row * blockSize + col] = B[BSubIdx + row * B.width + col];
+    //    ms[row * blockSize + col] = m[mSubIdx + row * m.width + col];
+    //    ks[row * blockSize + col] = k[kSubIdx + row * k.width + col];
 
-        // Synchronize to make sure the sub-matrices are loaded
-        // before starting the computation
-        __syncthreads();
-        // Multiply Asub and Bsub together
-        for (int e = 0; e < blockSize; ++e)
-        {
-            CValue += As[row * blockSize + e] * Bs[e * blockSize + col];
-        }
-        // Synchronize to make sure that the preceding
-        // computation is done before loading two new
-        // sub-matrices of A and B in the next iteration
-        __syncthreads();
-        curAWidth -= blockSize;
-        m++;
-    }
-    C[CSubIdx + row * C.width + col] = CValue;
+    //    __syncthreads();
+    //    // Multiply Asub and Bsub together
+    //    for (int e = 0; e < blockSize; ++e)
+    //    {
+    //        outValue += ms[row * blockSize + e] * ks[e * blockSize + col];
+    //    }
+    //    // Synchronize to make sure that the preceding
+    //    // computation is done before loading two new
+    //    // sub-matrices of A and B in the next iteration
+    //    __syncthreads();
+    //    curAWidth -= blockSize;
+    //    m++;
+    //}
+    //out[outSubIdx + row * out.width + col] = outValue;
 }
