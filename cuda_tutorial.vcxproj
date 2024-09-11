@@ -12,19 +12,15 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="main.cu" />
-    <CudaCompile Include="src\Conv.cu" />
     <CudaCompile Include="src\GPUInfo.cu" />
-    <CudaCompile Include="src\Kernel.cu" />
-    <CudaCompile Include="src\MatMul.cu" />
-    <CudaCompile Include="src\Matrix.cu" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Common.h" />
-    <ClInclude Include="src\Conv.h" />
+    <ClInclude Include="src\Conv.cuh" />
     <ClInclude Include="src\GPUInfo.h" />
-    <ClInclude Include="src\Kernel.h" />
-    <ClInclude Include="src\MatMul.h" />
-    <ClInclude Include="src\Matrix.h" />
+    <ClInclude Include="src\Kernel.cuh" />
+    <ClInclude Include="src\MatMul.cuh" />
+    <ClInclude Include="src\Matrix.cuh" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
@@ -83,7 +79,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <Include>$(SolutionDir)src;%(Include)</Include>
-      <CodeGeneration>compute_86,sm_86;%(CodeGeneration)</CodeGeneration>
+      <CodeGeneration>compute_86,sm_86;compute_52,sm_52;%(CodeGeneration)</CodeGeneration>
       <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
     </CudaCompile>
   </ItemDefinitionGroup>
@@ -105,7 +101,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <Include>$(SolutionDir)src;%(Include)</Include>
-      <CodeGeneration>compute_86,sm_86;%(CodeGeneration)</CodeGeneration>
+      <CodeGeneration>compute_86,sm_86;compute_52,sm_52;%(CodeGeneration)</CodeGeneration>
       <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
     </CudaCompile>
   </ItemDefinitionGroup>

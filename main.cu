@@ -1,5 +1,5 @@
-#include "Matrix.h"
-#include "MatMul.h"
+#include "Matrix.cuh"
+#include "MatMul.cuh"
 
 int main()
 {
