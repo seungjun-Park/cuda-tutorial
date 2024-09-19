@@ -18,7 +18,8 @@
     <ClInclude Include="src\Common.h" />
     <ClInclude Include="src\Conv.cuh" />
     <ClInclude Include="src\GPUInfo.h" />
-    <ClInclude Include="src\Kernel.cuh" />
+    <ClInclude Include="src\Interpolation.cuh" />
+    <ClInclude Include="src\Linear.cuh" />
     <ClInclude Include="src\MatMul.cuh" />
     <ClInclude Include="src\Matrix.cuh" />
   </ItemGroup>

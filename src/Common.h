@@ -16,3 +16,18 @@ void check(T result, char const* const func, const char* const file,
     }
 }
 #define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
+
+void CudaMalloc(void** dst, size_t size)
+{
+    checkCudaErrors(cudaMalloc(dst, size));
+}
+
+void CudaMemcpyHostToDevice(void* dst, const void* src, size_t size)
+{
+    checkCudaErrors(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
+}
+
+void CudaMemcpyDeviceToHost(void* dst, const void* src, size_t size)
+{
+    checkCudaErrors(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
+}

@@ -1,40 +1,27 @@
 #pragma once
+#include <assert.h>
 #include <vector>
 #include <iostream>
 #include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <string>
+#include <random>
+
+#include "GPUInfo.h"
+#include "Common.h"
 
 ///////////////////////////// Declaration ///////////////////////////////
 
 template<int dim>
-class Matrix final
+struct Matrix
 {
 public:
-	Matrix(std::vector<int> shape, bool useCPU = true);
-	Matrix(const Matrix& other);
-	Matrix(Matrix&& other) noexcept;
+	__host__ __device__ float operator[](int index) const;
+	__host__ __device__ float& operator[](int index);
 
-	~Matrix();
-
-	Matrix<dim>& operator=(const Matrix& other);
-	Matrix<dim>& operator=(Matrix&& other) noexcept;
-	float& operator[](int index);
-	float operator[](int index) const;
-
-	const int* GetShape() const;
-	constexpr int GetDim() const;
-	int GetSize() const;
-	float* GetElements();
-	bool IsCPU() const;
-	void ToDevice();
-	void ToHost();
-
-private:
-	Matrix();
-
-private:
-	int* shape;
-	int size;
-	bool useCPU;
+public:
+	int shape[dim];
+	int size = 1;
 
 	float* elements = nullptr;
 };
@@ -46,242 +33,10 @@ typedef Matrix<4> Matrix4d;
 typedef Matrix<5> Matrix5d;
 
 template<int dim>
-struct MatrixD {
-	const int* shape;
-	int size;
-
-	float* elements;
-
-public:
-	__host__ __device__ float& operator[](int index);
-	__host__ __device__ float operator[](int index) const;
-};
-
-typedef MatrixD<1> MatrixD1d;
-typedef MatrixD<2> MatrixD2d;
-typedef MatrixD<3> MatrixD3d;
-typedef MatrixD<4> MatrixD4d;
-typedef MatrixD<5> MatrixD5d;
-
-template<int dim>
-std::ostream& operator<<(std::ostream&, const Matrix<dim>&);
-
-template<int dim>
-bool operator==(const Matrix<dim>& left, const Matrix<dim>& right);
-
-template<int dim>
-Matrix<dim> Zeros(std::vector<int> shape, bool useCPU = true);
-
-template<int dim>
-void Zeros(Matrix<dim>& m);
-
-template<int dim>
-Matrix<dim> Randn(std::vector<int> shape, bool useCPU = true);
-
-template<int dim>
-void Randn(Matrix<dim>& m);
-
-
-//////////////////////////////// Implmentation //////////////////////////////
-#include <assert.h>
-#include <vector>
-#include <iostream>
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <string>
-#include <random>
-#include "GPUInfo.h"
-#include "Common.h"
-
-template<int dim>
-Matrix<dim>::Matrix(std::vector<int> shape, bool useCPU) :
-	useCPU(useCPU)
+float Matrix<dim>::operator[](int index) const
 {
-	assert(elements == nullptr && dim == shape.size());
-
-	size = 1;
-	this->shape = new int[dim];
-	for (size_t i = 0; i < dim; i++)
-	{
-		this->shape[i] = shape[i];
-		size *= shape[i];
-	}
-	elements = new float[size];
-	for (size_t i = 0; i < size; i++)
-	{
-		elements[i] = 0.f;
-	}
-	if (!useCPU)
-	{
-		float* tmpElements = elements;
-		elements = nullptr;
-		int* tmpShape = this->shape;
-		this->shape = nullptr;
-
-		checkCudaErrors(cudaMalloc((void**)&elements, size * sizeof(float)));
-		checkCudaErrors(cudaMemcpy(elements, tmpElements, size * sizeof(float), cudaMemcpyHostToDevice));
-		checkCudaErrors(cudaMalloc((void**)&this->shape, dim * sizeof(int)));
-		checkCudaErrors(cudaMemcpy(this->shape, tmpShape, dim * sizeof(int), cudaMemcpyHostToDevice));
-	}
-}
-
-template<int dim>
-Matrix<dim>::Matrix(const Matrix& other) :
-	useCPU(other.useCPU),
-	size(other.size)
-{
-	assert(elements == nullptr && shape == nullptr && dim == other.dim);
-	if (useCPU)
-	{
-		elements = new float[size];
-		for (size_t i = 0; i < size; i++)
-		{
-			elements[i] = other.elements[i];
-		}
-		shape = new int[dim];
-		for (size_t i = 0; i < dim; i++)
-		{
-			this->shape[i] = other.shape[i];
-		}
-	}
-	else
-	{
-		checkCudaErrors(cudaMalloc((void**)&elements, size * sizeof(float)));
-		checkCudaErrors(cudaMemcpy(elements, other.elements, size * sizeof(float), cudaMemcpyDeviceToDevice));
-		checkCudaErrors(cudaMalloc((void**)&shape, dim * sizeof(int)));
-		checkCudaErrors(cudaMemcpy(shape, other.shape, dim * sizeof(int), cudaMemcpyDeviceToDevice));
-	}
-}
-
-template<int dim>
-Matrix<dim>::Matrix(Matrix&& other) noexcept :
-	useCPU(other.useCPU),
-	size(other.size)
-{
-	assert(elements == nullptr && shape == nullptr && dim == other.dim);
-	shape = other.shape;
-	other.shape = nullptr;
-	elements = other.elements;
-	other.elements = nullptr;
-}
-
-template<int dim>
-Matrix<dim>::~Matrix()
-{
-	if (elements != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] elements;
-		}
-		else
-		{
-			cudaFree(elements);
-		}
-	}
-
-	if (shape != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] shape;
-		}
-		else
-		{
-			cudaFree(shape);
-		}
-	}
-}
-
-template<int dim>
-Matrix<dim>& Matrix<dim>::operator=(const Matrix& other)
-{
-	if (elements != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] elements;
-		}
-		else
-		{
-			cudaFree(elements);
-		}
-	}
-
-	if (shape != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] shape;
-		}
-		else
-		{
-			cudaFree(shape);
-		}
-	}
-
-	useCPU = other.useCPU;
-	dim = other.dim;
-	size = other.size;
-
-	if (other.useCPU)
-	{
-		elements = new float[size];
-		for (size_t i = 0; i < size; i++)
-		{
-			elements[i] = other.elements[i];
-		}
-
-		shape = new int[dim];
-		for (size_t i = 0; i < dim; i++)
-		{
-			shape[i] = other.shape[i];
-		}
-	}
-	else
-	{
-		checkCudaErrors(cudaMalloc((void**)&elements, size * sizeof(float)));
-		checkCudaErrors(cudaMemcpy(elements, other.elements, sizeof(float) * size, cudaMemcpyDeviceToDevice));
-		checkCudaErrors(cudaMalloc((void**)&shape, dim * sizeof(int)));
-		checkCudaErrors(cudaMemcpy(shape, other.shape, dim * sizeof(int), cudaMemcpyDeviceToDevice));
-	}
-
-	return *this;
-}
-
-template<int dim>
-Matrix<dim>& Matrix<dim>::operator=(Matrix&& other) noexcept
-{
-	if (elements != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] elements;
-		}
-		else
-		{
-			cudaFree(elements);
-		}
-	}
-
-	if (shape != nullptr)
-	{
-		if (useCPU)
-		{
-			delete[] shape;
-		}
-		else
-		{
-			cudaFree(shape);
-		}
-	}
-
-	elements = other.elements;
-	shape = other.shape;
-	useCPU = other.useCPU;
-	other.elements = nullptr;
-	other.shape = nullptr;
-	return *this;
+	assert(index < size);
+	return elements[index];
 }
 
 template<int dim>
@@ -292,155 +47,45 @@ float& Matrix<dim>::operator[](int index)
 }
 
 template<int dim>
-float Matrix<dim>::operator[](int index) const
+std::ostream& operator<<(std::ostream& os, const Matrix<dim>& matrix)
 {
-	assert(index < size);
-	return elements[index];
-}
+	int curShape[dim];
 
-template<int dim>
-bool Matrix<dim>::IsCPU() const
-{
-	return useCPU;
-}
-
-template<int dim>
-float* Matrix<dim>::GetElements()
-{
-	return elements;
-}
-
-template<int dim>
-const int* Matrix<dim>::GetShape() const
-{
-	return shape;
-}
-
-template<int dim>
-constexpr int Matrix<dim>::GetDim() const
-{
-	return dim;
-}
-
-template<int dim>
-int Matrix<dim>::GetSize() const
-{
-	return size;
-}
-
-template<int dim>
-void Matrix<dim>::ToDevice()
-{
-	if (!useCPU)
+	int div = 1;
+	for (int i = dim - 1; i >= 0; i--)
 	{
-		return;
+		curShape[i] = 0;
 	}
 
-	float* tmp = elements;
-	elements = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&elements, size * sizeof(float)));
-	checkCudaErrors(cudaMemcpy(elements, tmp, size * sizeof(float), cudaMemcpyHostToDevice));
-
-	int* tmpShape = shape;
-	shape = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&shape, dim * sizeof(int)));
-	checkCudaErrors(cudaMemcpy(shape, tmpShape, dim * sizeof(int), cudaMemcpyHostToDevice));
-
-	useCPU = false;
-	delete[] tmp;
-	delete[] tmpShape;
-}
-
-template<int dim>
-void Matrix<dim>::ToHost()
-{
-	if (useCPU)
+	for (size_t idx = 0; idx < matrix.size; idx++)
 	{
-		return;
+		os << matrix[idx] << ", ";
+
+		div = 1;
+		for (int i = dim - 1; i >= 0; i--)
+		{
+			curShape[i] = (idx / div) % matrix.shape[i];
+			div *= matrix.shape[i];
+		}
+		curShape[dim - 1] += 1;
+		for (int i = dim - 1; i > 0; i--)
+		{
+			if (curShape[i] < matrix.shape[i])
+			{
+				break;
+			}
+			curShape[i - 1] += 1;
+			os << "\n";
+		}
 	}
 
-	float* tmp = elements;
-	elements = nullptr;
-	elements = new float[size];
-	checkCudaErrors(cudaMemcpy(elements, tmp, size * sizeof(float), cudaMemcpyDeviceToHost));
-
-	int* tmpShape = shape;
-	shape = nullptr;
-	shape = new int[dim];
-	checkCudaErrors(cudaMemcpy(shape, tmpShape, dim * sizeof(int), cudaMemcpyDeviceToHost));
-
-	cudaFree(tmp);
-	cudaFree(tmpShape);
-	useCPU = true;
-}
-
-template<int dim>
-Matrix<dim> Zeros(std::vector<int> shape, bool useCPU)
-{
-	Matrix<dim> m(shape, true);
-
-	for (size_t i = 0; i < m.GetSize(); i++)
-	{
-		m[i] = 0.f;
-	}
-	if (!useCPU)
-	{
-		m.ToDevice();
-	}
-	return m;
-}
-
-
-template<int dim>
-void Zeros(Matrix<dim>& m)
-{
-	assert(m.IsCPU());
-	for (size_t i = 0; i < m.GetSize(); i++)
-	{
-		m[i] = 0.f;
-	}
-}
-
-template<int dim>
-Matrix<dim> Randn(std::vector<int> shape, bool useCPU)
-{
-	std::random_device rd;
-	std::mt19937_64 gen(rd());
-	std::normal_distribution<float> nd(0, 1);
-	Matrix<dim> m(shape, true);
-
-	for (size_t i = 0; i < m.GetSize(); i++)
-	{
-		m[i] = nd(gen);
-	}
-
-	if (!useCPU)
-	{
-		m.ToDevice();
-	}
-
-	return m;
-}
-
-template<int dim>
-void Randn(Matrix<dim>& m)
-{
-	assert(m.IsCPU());
-
-	std::random_device rd;
-	std::mt19937_64 gen(rd());
-	std::normal_distribution<float> nd(0, 1);
-
-	for (size_t i = 0; i < m.GetSize(); i++)
-	{
-		m[i] = nd(gen);
-	}
+	return os;
 }
 
 template<int dim>
 bool operator==(const Matrix<dim>& left, const Matrix<dim>& right)
 {
-	for (size_t i = 0; i < left.GetSize(); i++)
+	for (size_t i = 0; i < left.size; i++)
 	{
 		if ((left[i] - right[i]) > 1e-4)
 		{
@@ -452,61 +97,141 @@ bool operator==(const Matrix<dim>& left, const Matrix<dim>& right)
 }
 
 template<int dim>
-__host__ __device__
-float MatrixD<dim>::operator[](int index) const
+Matrix<dim> Zeros(std::vector<int> shape, bool useCPU = true)
 {
-	if (index >= size)
+	assert(shape.size() == dim);
+	Matrix<dim> m;
+
+	for (size_t i = 0; i < dim; i++)
 	{
-		printf("index: %d >= %d\n", index, size);
+		m.shape[i] = shape[i];
+		m.size *= shape[i];
 	}
-	assert(index < size);
-	return elements[index];
+
+	m.elements = new float[m.size];
+
+	for (size_t i = 0; i < m.size; i++)
+	{
+		m[i] = 0.f;
+	}
+
+	return m;
 }
 
 template<int dim>
-__host__ __device__
-float& MatrixD<dim>::operator[](int index)
+Matrix<dim> Randn(std::vector<int> shape, bool useCPU = true)
 {
-	if (index >= size)
+	assert(shape.size() == dim);
+	std::random_device rd;
+	std::mt19937_64 gen(rd());
+	std::normal_distribution<float> nd(0, 1);
+	Matrix<dim> m;
+
+	for (size_t i = 0; i < dim; i++)
 	{
-		printf("index: %d >= %d\n", index, size);
+		m.shape[i] = shape[i];
+		m.size *= shape[i];
 	}
-	assert(index < size);
-	return elements[index];
+
+	m.elements = new float[m.size];
+
+	for (size_t i = 0; i < m.size; i++)
+	{
+		m[i] = nd(gen);
+	}
+
+	return m;
 }
 
 template<int dim>
-std::ostream& operator<<(std::ostream& os, const Matrix<dim>& matrix)
+Matrix<dim> Ones(std::vector<int> shape, bool useCPU = true)
 {
-	const int* shape = matrix.GetShape();
+	assert(shape.size() == dim);
+	Matrix<dim> m;
+
+	for (size_t i = 0; i < dim; i++)
+	{
+		m.shape[i] = shape[i];
+		m.size *= shape[i];
+	}
+
+	m.elements = new float[m.size];
+
+	for (size_t i = 0; i < m.size; i++)
+	{
+		m[i] = 1.f;
+	}
+
+	return m;
+}
+
+template<int dim>
+void Pad(Matrix<dim>& m, std::vector<int> shape, int value = 0)
+{
+	assert(shape.size() % 2 == 0 && (shape.size() / 2) <= dim);
+
+	int newShape[dim];
+
+	for (size_t i = 0; i < dim; i++)
+	{
+		newShape[i] = m.shape[i];
+	}
+
+	for (size_t i = 0; i < shape.size() / 2; i++)
+	{
+		newShape[dim - i - 1] += (shape[i * 2] + shape[i * 2 + 1]);
+	}
+
+	int newSize = 1;
+
+	for (size_t i = 0; i < dim; i++)
+	{
+		newSize *= newShape[i];
+	}
+
+	float* newElements = new float[newSize];
+
 	int curShape[dim];
-	int div = 1;
-	for (int i = dim - 1; i >= 0; i--)
+	int div;
+	int oldIdx = 0;
+	bool useValue;
+	for (size_t idx = 0; idx < newSize; idx++)
 	{
-		curShape[i] = 0;
-	}
-
-	for (size_t idx = 0; idx < matrix.GetSize(); idx++)
-	{
-		os << matrix[idx] << ", ";
-
+		int i = dim - 1;
+		int j = 0;
 		div = 1;
-		for (int i = dim - 1; i >= 0; i--)
+		useValue = false;
+		while (i >= 0)
 		{
-			curShape[i] = (idx / div) % shape[i];
-			div *= shape[i];
-		}
-		curShape[dim - 1] += 1;
-		for (int i = dim - 1; i > 0; i--)
-		{
-			if (curShape[i] < shape[i])
+			curShape[i] = (idx / div) % newShape[i];
+			div *= newShape[i];
+			if (j < (shape.size() / 2))
 			{
-				break;
+				if ((curShape[i] < shape[j * 2] || (newShape[i] - curShape[i] - 1) < shape[j * 2 + 1]))
+				{
+					useValue = true;
+				}
 			}
-			curShape[i - 1] += 1;
-			os << "\n";
+			i--;
+			j++;
+		}
+		if (useValue)
+		{
+			newElements[idx] = value;
+		}
+		else
+		{
+			newElements[idx] = m.elements[oldIdx];
+			oldIdx++;
 		}
 	}
 
-	return os;
+	for (size_t i = 0; i < dim; i++)
+	{
+		m.shape[i] = newShape[i];
+	}
+	float* tmp = m.elements;
+	m.elements = newElements;
+	m.size = newSize;
+	delete[] tmp;
 }
