@@ -10,7 +10,9 @@ int main()
 {
 	// MatMulTest();
 	// LinearTest();
-	ConvNdTest();
+	// ConvNdTest();
+
+	std::cout << (1 << 30) << std::endl;
 
 	return 0;
 }

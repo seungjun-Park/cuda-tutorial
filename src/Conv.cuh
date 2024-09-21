@@ -397,7 +397,13 @@ __global__ void ConvNdGPUKernel(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> 
 }
 
 template<int dim, int n>
-__global__ void ConvNdGPUKernelWithSharedMemory(const Matrix<dim> in, const ConvNd<n> k, Matrix<dim> out);
+__global__ void ConvNdGPUKernelWithSharedMemory(
+	const Matrix<dim> in, 
+	const ConvNd<n> k, 
+	Matrix<dim> out,
+	size_t blockSize,
+	size_t numThreads
+);
 
 template<int dim, int n>
 void ConvNdGPUWithSharedMemory(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> out)
@@ -431,9 +437,15 @@ void ConvNdGPUWithSharedMemory(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> o
 
 	// Invoke kernel
 	size_t outputSize = out.size;
-	size_t sharedMemSize = deviceProps[0].sharedMemPerBlock / sizeof(float);
-	size_t maxBlockSize = std::floor(std::sqrt(std::min((size_t)deviceProps[0].maxThreadsPerBlock, sharedMemSize / 2)));
-	size_t blockSize = std::_Gcd(C.shape[dim - 1], C.shape[dim - 2]);
+	size_t maxSharedMemSize = deviceProps[0].sharedMemPerBlock / sizeof(float);
+	size_t sharedMemSize = maxSharedMemSize / k.kSize;
+	size_t maxNumThread = deviceProps[0].maxThreadsPerBlock;
+	size_t maxBlockSize = std::powf(float(maxNumThread), 1.f / n);
+	size_t blockSize = out.shape[dim - n];
+	for (size_t i = 1; i < n; i++)
+	{
+		blockSize = std::_Gcd(blockSize, out.shape[dim - n + i]);
+	}
 
 	if (blockSize > maxBlockSize)
 	{
@@ -447,8 +459,14 @@ void ConvNdGPUWithSharedMemory(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> o
 		}
 	}
 
-	size_t numThreads = blockSize * blockSize;
+	size_t numThreads = 1;
+	for (size_t i = 0; i < n; i++)
+	{
+		numThreads *= blockSize;
+	}
+
 	dim3 dimBlock(numThreads);
+	
 	size_t gridSize = std::ceil((float)outputSize / numThreads);
 	gridSize = std::min((int)gridSize, deviceProps[0].maxGridSize[0]);
 	dim3 dimGrid(gridSize);
@@ -474,10 +492,12 @@ void ConvNdGPUWithSharedMemory(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> o
 	}
 
 	auto startTime = std::chrono::system_clock::now();
-	ConvNdGPUKernelWithSharedMemory<<<dimGrid, dimBlock>>>(
+	ConvNdGPUKernelWithSharedMemory << <dimGrid, dimBlock >> > (
 		d_inp,
 		d_k,
-		d_out
+		d_out,
+		blockSize,
+		sharedMemSize
 		);
 
 	cudaDeviceSynchronize();
@@ -498,35 +518,51 @@ void ConvNdGPUWithSharedMemory(Matrix<dim> inp, const ConvNd<n> k, Matrix<dim> o
 }
 
 template<int dim, int n>
-__global__ void ConvNdGPUKernelWithSharedMemory (const Matrix<dim> in, const ConvNd<n> k, Matrix<dim> out)
+__global__ void ConvNdGPUKernelWithSharedMemory(
+	const Matrix<dim> inp, 
+	const ConvNd<n> k, 
+	Matrix<dim> out,
+	size_t blockSize,
+	size_t sharedMemSize
+)
 {
-	int idx = threadIdx.x + blockDim.x * blockIdx.x;
-	if (idx >= out.size)
-	{
-		return;
-	}
+	extern __shared__ float kShm[];
 
 	constexpr int chIdx = dim - n - 1;
 
-	int curInpShape[n];
-	int curOutShape[dim];
-	int curKShape[n];
+	int blockShape[dim];
+	int curBlockShape[dim];
+
+	int curBlockDiv = 1;
+
+	for (int i = dim - 1; i >= 0; i--)
+	{
+		blockShape[i] = out.shape[i] / ((i < dim - n) ? 1 : blockSize);
+		curBlockShape[i] = (blockIdx.x / curBlockDiv) % blockShape[i];
+		curBlockDiv *= blockShape[i];
+	}
 
 	int curDiv = 1;
 	int curKDiv = 1;
 	int inpDiv = 1;
+	int outDiv = 1;
 
 	int inpIdx = 0;
 	int inpKIdx = 0;
+	int outIdx = 0;
 
-	for (int i = dim - 1; i >= 0; i--)
+	for (int i = dim - 1; i >= 0; i++)
 	{
-		curOutShape[i] = (idx / curDiv) % out.shape[i];
+		outIdx += (blockShape[i] * outDiv) * ((i < dim - n) ? 1 : blockSize) % out.shape[i];
+		outDiv *= out.shape[i];
+		if (chIdx < i)
+		{
+
+		}
 		if (i < chIdx)
 		{
-			inpIdx += curOutShape[i] * inpDiv;
+			inpIdx += (blockShape[i] * inpDiv);
 		}
-		curDiv *= out.shape[i];
 		inpDiv *= inp.shape[i];
 	}
 
@@ -534,33 +570,58 @@ __global__ void ConvNdGPUKernelWithSharedMemory (const Matrix<dim> in, const Con
 	{
 		curInpShape[i] = k.stride[i] * (curOutShape[i - n + dim] - 1) + 1 + k.dillation[i] * (k.kernelSize[i] - 1) - 2 * k.padding[i];
 	}
+	
+	int curGroups = k.groups * curBlockShape[chIdx] / blockShape[chIdx];
+	int baseKIdx = curBlockShape[chIdx] * k.inChannels * k.kSize;
 
-	int curGroups = k.groups * curOutShape[chIdx] / out.shape[chIdx];
-	int baseKIdx = curOutShape[chIdx] * k.inChannels * k.kSize;
+	int curInpShape[n];
+	int curKShape[n];
 
+	for (int i = n - 1; i >= 0; i--)
+	{
+		
+	}
+	
 	float value = 0.f;
 
-	for (size_t kCh = 0; kCh < k.inChannels; kCh++)
+	int e = k.inChannels;
+	int m = 0;
+	while (e > 0)
 	{
-		for (size_t kIdx = 0; kIdx < k.kSize; kIdx++)
+		int shmSize = (sharedMemSize < n) ? sharedMemSize : n;
+		for (size_t i = 0; i < k.kSize; i++)
 		{
-			inpKIdx = 0;
-			inpDiv = 1;
-			curKDiv = 1;
-			for (int i = n - 1; i >= 0; i--)
-			{
-				curKShape[i] = (kIdx / curKDiv) % k.kernelSize[i];
-				inpKIdx += (curInpShape[i] + curKShape[i]) * inpDiv;
-				inpDiv *= inp.shape[dim - n + i];
-				curKDiv *= k.kernelSize[i];
-			}
-			value += inp[inpIdx + inpKIdx + (curGroups * k.inChannels + kCh) * inpDiv] * k.weight[baseKIdx + kCh * k.kSize + kIdx];
+			kShm[threadIdx.x * k.kSize + i] = k.weight[m * k.kSize + threadIdx * k.kSize + i];
 		}
+
+		__syncthreads();
+
+		for (size_t kCh = 0; kCh < shmSize; kCh++)
+		{
+			for (size_t kIdx = 0; kIdx < k.kSize; kIdx++)
+			{
+				inpKIdx = 0;
+				inpDiv = 1;
+				curKDiv = 1;
+				for (int i = n - 1; i >= 0; i--)
+				{
+					curKShape[i] = (kIdx / curKDiv) % k.kernelSize[i];
+					inpKIdx += (curInpShape[i] + curKShape[i]) * inpDiv;
+					inpDiv *= inp.shape[dim - n + i];
+					curKDiv *= k.kernelSize[i];
+				}
+				value += inp[inpIdx + inpKIdx + (curGroups * k.inChannels + kCh) * inpDiv] * kShm[kCh * k.kSize + kIdx];
+			}
+		}
+
+		m += shmSize;
+		e -= shmSize;
+		__syncthreads();
 	}
 
 	if (k.bias != nullptr)
 	{
-		value += k.bias[curOutShape[chIdx]];
+		value += k.bias[curBlockShape[chIdx]];
 	}
 
 	out[idx] = value;
@@ -571,25 +632,22 @@ void ConvNdTest()
 	constexpr int dim = 4;
 	constexpr int n = 2;
 
-	Matrix<dim> a = Ones<dim>({ 1, 3, 512, 512 });
-	Matrix<dim> b = Ones<dim>({ 1, 3, 512, 512 });
-	Conv2d k(3, 32, 3, 1, 1, 1, 1);
-	for (size_t i = 0; i < k.wSize; i++)
+	Matrix<dim> a = Randn<dim>({ 1, 3, 512, 512 });
+	Matrix<dim> b(a);
+	Matrix<dim> c(a);
+
+	b.elements = nullptr;
+	c.elements = nullptr;
+	b.elements = new float[b.size];
+	c.elements = new float[c.size];
+
+	for (size_t i = 0; i < a.size; i++)
 	{
-		if (i < k.wSize / k.groups)
-		{
-			k.weight[i] = 1.f;
-		}
-		else
-		{
-			k.weight[i] = 2.f;
-		}
+		b.elements[i] = a.elements[i];
+		c.elements[i] = a.elements[i];
 	}
 
-	for (size_t i = 0; i < k.bSize; i++)
-	{
-		k.bias[i] = 0.f;
-	}
+	Conv2d k(3, 32, 3, 1, 1, 1, 1);
 
 	Matrix<dim> outCPU = Zeros<dim>({ 1, 32, 512, 512 });
 	Matrix<dim> outGPU = Zeros<dim>({ 1, 32, 512, 512 });
@@ -597,6 +655,11 @@ void ConvNdTest()
 
 	ConvNdCPU(a, k, outCPU);
 	ConvNdGPU(b, k, outGPU);
+	ConvNdGPUWithSharedMemory(b, k, outGPUSM);
 
 	std::cout << (outCPU == outGPU) << std::endl;
+
+	delete[] a.elements;
+	delete[] b.elements;
+	delete[] c.elements;
 }
