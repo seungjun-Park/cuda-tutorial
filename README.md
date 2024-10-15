@@ -1,5 +1,5 @@
 # cuda-tutorial
-The repository is to study cuda programming.  
+This repository is to study cuda programming.  
 
 ## Implementation list  
 - Matrix class for cuda   
