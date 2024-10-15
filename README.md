@@ -7,4 +7,8 @@ The repository is to study cuda programming.
 - Matrix multiplcation with shared memory   
 - Linear operation   
 - Convolution operation
-- 
+
+
+## Envrionments   
+This codes test on MSVC(Windows10) and CudaToolkit 11.8.   
+
