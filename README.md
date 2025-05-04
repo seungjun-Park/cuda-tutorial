@@ -10,5 +10,5 @@ This repository is to study cuda programming.
 
 
 ## Envrionments   
-This codes test on MSVC(Windows10) and CudaToolkit 11.8.   
+This codes test on MSVC2022(Windows10) and CudaToolkit 11.8.   
 
